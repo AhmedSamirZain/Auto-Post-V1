@@ -1,31 +1,52 @@
 import streamlit as st
 import subprocess
 import os
+import sys
 
-# إعدادات الصفحة والواجهة
-st.set_page_config(page_title="Telegram Bot Control", page_icon="🤖")
+st.set_page_config(page_title="Telegram Bot Monitor", page_icon="🤖")
 st.title("🤖 Auto Post Telegram Bot")
-st.write("مرحباً بك يا أحمد! لوحة تحكم البوت الشخصية.")
 
-# دالة تشغيل البوت كعملية منفصلة في الخلفية (تشتغل مرة واحدة بس وتمنع التكرار)
+# 1. حقن الأسرار في بيئة النظام
+for key, value in st.secrets.items():
+    os.environ[key] = str(value)
+
+# دالة لتشغيل البوت وحفظ العملية في الكاش لمنع التكرار
 @st.cache_resource
-def run_my_bot():
-    # 1. تثبيت متصفح بلاي رايت فوراً عشان النشر تلقائي يشتغل
+def start_bot_process():
+    # تثبيت بلاي رايت
     os.system("python -m playwright install chromium")
     
-    # 2. أخذ نسخة من بيئة النظام وحقن الـ Secrets جواها عشان ملف config يشوفها
-    bot_env = os.environ.copy()
-    for key, value in st.secrets.items():
-        bot_env[key] = str(value)
-    
-    # 3. تشغيل ملف bot.py مباشرة كـ Process منفصل في الخلفية
-    process = subprocess.Popen(["python", "bot.py"], env=bot_env)
+    # تشغيل ملف bot.py وتوجيه المخرجات لملف نصي لقراءتها
+    log_file = open("bot_output.log", "w")
+    process = subprocess.Popen(
+        [sys.executable, "bot.py"],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        env=os.environ.copy()
+    )
     return process
 
-# تنفيذ التشغيل تلقائياً أول ما السيرفر يفتح
+# تشغيل البوت
 try:
-    bot_process = run_my_bot()
-    st.success("🟢 البوت تم تشغيله بنجاح وأمان في الخلفية لمدة 24 ساعة! 🚀")
-    st.balloons()
+    process = start_bot_process()
+    st.success("🟢 سيرفر ستريمليت أطلق العملية في الخلفية!")
 except Exception as e:
-    st.error(f"❌ حدث خطأ أثناء تشغيل السيرفر: {e}")
+    st.error(f"❌ فشل إطلاق العملية: {e}")
+
+# 2. عرض الـ Logs الحقيقية للبوت جوه الصفحة عشان نشوف المشكلة
+st.subheader("📋 شاشة مراقبة أخطاء البوت الداخلية (Bot Terminal Live):")
+
+if os.path.exists("bot_output.log"):
+    with open("bot_output.log", "r") as f:
+        logs = f.read()
+    
+    if logs.strip() == "":
+        st.info("⏳ البوت يبدأ التشغيل الآن... انتظر ثواني واعمل ريفريش للصفحة.")
+    else:
+        st.code(logs, language="text")
+else:
+    st.warning("🔄 لم يتم إنشاء ملف السجلات بعد.")
+
+# زرار لتحديث الشاشة يدوياً وقراءة الجديد
+if st.button("🔄 تحديث الشاشة وقراءة الأخطاء"):
+    st.rerun()
