@@ -22,7 +22,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 import database as db
-from config import ADMIN_ID, PLAN_LIMITS, PAYMENT_NAME, INSTAPAY_NUMBER, VODAFONE_CASH, SUPPORT_USERNAME
+from config import ADMIN_ID, PLAN_LIMITS, PAYMENT_NAME, INSTAPAY_ADDRESS, VODAFONE_CASH, SUPPORT_USERNAME
 
 logger = logging.getLogger(__name__)
 
