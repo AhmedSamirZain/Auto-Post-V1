@@ -1,19 +1,26 @@
 import streamlit as st
-import subprocess
+import threading
 import os
 import sys
 
-st.set_page_config(page_title="Reels Bot", page_icon="🤖")
-st.title("🤖 Reels Bot Dashboard")
+st.title("🤖 Auto Post Telegram Bot")
+st.write("البوت يعمل الآن في الخلفية بنجاح... 🚀")
 
-# كود لمنع التكرار
-if "bot_process" not in st.session_state:
-    st.info("🚀 جاري تشغيل البوت...")
-    # تشغيل main.py
-    process = subprocess.Popen([sys.executable, "main.py"])
-    st.session_state.bot_process = process.pid
-    st.success("✅ البوت شغال الآن!")
-else:
-    st.success(f"✅ البوت مستمر في العمل (PID: {st.session_state.bot_process})")
+# نضمن إن السيستم شايف المجلد الحالي عشان ما يرفعش خطأ في الاستيراد
+sys.path.append(os.path.dirname(__file__))
 
-st.warning("⚠️ لو فيه أخطاء Conflict، تأكد إنك قافل البوت على جهازك الشخصي.")
+def run_bot():
+    # تثبيت متصفح بلاي رايت داخل السيرفر تلقائياً عشان الفيس بوك
+    os.system("playwright install chromium")
+    
+    # استدعاء دالة main الفعالة من ملف bot.py بتاعك
+    from bot import main
+    try:
+        main()
+    except Exception as e:
+        print(f"Bot error: {e}")
+
+# تشغيل البوت في Thread منفصل عشان السيرفر ما يعلقش
+if "bot_thread" not in st.session_state:
+    st.session_state.bot_thread = threading.Thread(target=run_bot, daemon=True)
+    st.session_state.bot_thread.start()
