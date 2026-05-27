@@ -1741,7 +1741,7 @@ async def cb_plan_upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text += (
         f"\n💳 *طرق الدفع:*\n"
-        f"• إنستاباي: `{INSTAPAY_NUMBER}`\n"
+        f"• إنستاباي: `{INSTAPAY_ADDRESS}`\n"
         f"• فودافون كاش: `{VODAFONE_CASH}`\n"
         f"• الاسم: {PAYMENT_NAME}\n\n"
         f"بعد الدفع أرسل الإيصال للدعم: {SUPPORT_USERNAME}"
