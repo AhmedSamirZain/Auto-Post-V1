@@ -23,15 +23,13 @@ SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Linux; Android 12; SM-G998B) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Mobile Safari/537.36"
-    ),
-    "Accept-Language": "ar,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Referer": "https://mbasic.facebook.com/",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
-
 
 def _parse_cookies(raw: str) -> list:
     try:
