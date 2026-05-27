@@ -26,6 +26,13 @@ from config import ADMIN_ID, PLAN_LIMITS, PAYMENT_NAME, INSTAPAY_ADDRESS, VODAFO
 
 logger = logging.getLogger(__name__)
 
+
+def _escape_md(text: str) -> str:
+    """Escape special Markdown v1 characters in user-generated content."""
+    if not text:
+        return ""
+    return str(text).replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
 # ── States ────────────────────────────────────────────────────────────────────
 CAIRO_TZ = pytz.timezone("Africa/Cairo")
 
@@ -483,12 +490,12 @@ async def cb_acc_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     limits = PLAN_LIMITS.get(user.get("plan","free"), PLAN_LIMITS["free"])
 
     await _edit(update,
-        f"👤 *{acc['account_name']}*\n"
+        f"👤 *{_escape_md(acc['account_name'])}*\n"
         f"━━━━━━━━━━━━━━━━━━\n\n"
         f"🆔 المعرف: `{c_user}`\n"
         f"📊 الخطة: {_plan_label(user.get('plan','free'))} "
         f"({len(groups)}/{limits['max_groups']})\n"
-        f"🌐 بروكسي: {acc.get('proxy') or 'بدون'}\n"
+        f"🌐 بروكسي: {_escape_md(acc.get('proxy') or 'بدون')}\n"
         f"📅 أُضيف: {_fmt_date(acc.get('added_at',''))}",
         ik(
             [btn("🗂 سحب المجموعات",   f"acc_fetch_grp_{acc_id}"),
@@ -523,9 +530,9 @@ async def cb_acc_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     automator = FBAutomator(acc_id, acc["cookies"], acc.get("proxy"))
     ok = await automator.check_login()
     if ok:
-        await _edit(update, f"✅ *الحساب نشط*: {acc['account_name']}", ik(back_btn("accounts")))
+        await _edit(update, f"✅ *الحساب نشط*: {_escape_md(acc['account_name'])}", ik(back_btn("accounts")))
     else:
-        await _edit(update, f"❌ *الحساب غير نشط أو الكوكيز منتهية*\n{acc['account_name']}", ik(back_btn("accounts")))
+        await _edit(update, f"❌ *الحساب غير نشط أو الكوكيز منتهية*\n{_escape_md(acc['account_name'])}", ik(back_btn("accounts")))
     return S_ACCOUNTS
 
 
@@ -542,10 +549,10 @@ async def cb_acc_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ok = await automator.check_login()
         if ok:
             active += 1
-            report += f"✅ {acc['account_name']}\n"
+            report += f"✅ {_escape_md(acc['account_name'])}\n"
         else:
             failed += 1
-            report += f"❌ {acc['account_name']}\n"
+            report += f"❌ {_escape_md(acc['account_name'])}\n"
     report += f"\n✅ النشطة: {active} | ❌ الفاشلة: {failed}"
     await _edit(update, report, ik(back_btn("accounts")))
     return S_ACCOUNTS
@@ -2243,7 +2250,7 @@ async def _show_activity_log(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = "📋 *سجل النشاط*\n━━━━━━━━━━━━━━━━━━\n\n"
     for log in logs:
         e = "✅" if log.get("status") == "success" else "❌"
-        text += f"{e} {log['action']} — {_fmt_date(log.get('created_at',''))}\n"
+        text += f"{e} {_escape_md(log['action'])} — {_fmt_date(log.get('created_at',''))}\n"
     if not logs:
         text += "لا يوجد نشاط مسجل."
     await _send(update, text, inline_kb=ik(back_btn("tools_cb")))
