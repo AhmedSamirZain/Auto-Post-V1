@@ -98,6 +98,9 @@ async def post_init(application):
         BotCommand("status", "حالة النظام (للأدمن)"), 
     ])
     logger.info(f"{BOT_NAME} v{BOT_VERSION} initialized ✅")
+    # 👇 السطرين الجداد هنا بالظبط لإظهار زرار الأربع نقط (Menu) غصب عن تليجرام
+    from telegram import MenuButtonCommands
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
     # تشغيل الصيانة المجدولة كل 24 ساعة (86400 ثانية)
     application.job_queue.run_repeating(scheduled_maintenance, interval=86400, first=10)
