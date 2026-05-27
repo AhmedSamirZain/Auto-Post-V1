@@ -1,26 +1,31 @@
 import streamlit as st
-import threading
+import subprocess
 import os
-import sys
 
+# إعدادات الصفحة والواجهة
+st.set_page_config(page_title="Telegram Bot Control", page_icon="🤖")
 st.title("🤖 Auto Post Telegram Bot")
-st.write("البوت يعمل الآن في الخلفية بنجاح... 🚀")
+st.write("مرحباً بك يا أحمد! لوحة تحكم البوت الشخصية.")
 
-# نضمن إن السيستم شايف المجلد الحالي عشان ما يرفعش خطأ في الاستيراد
-sys.path.append(os.path.dirname(__file__))
-
-def run_bot():
-    # تثبيت متصفح بلاي رايت داخل السيرفر تلقائياً عشان الفيس بوك
-    os.system("playwright install chromium")
+# دالة تشغيل البوت كعملية منفصلة في الخلفية (تشتغل مرة واحدة بس وتمنع التكرار)
+@st.cache_resource
+def run_my_bot():
+    # 1. تثبيت متصفح بلاي رايت فوراً عشان النشر تلقائي يشتغل
+    os.system("python -m playwright install chromium")
     
-    # استدعاء دالة main الفعالة من ملف bot.py بتاعك
-    from bot import main
-    try:
-        main()
-    except Exception as e:
-        print(f"Bot error: {e}")
+    # 2. أخذ نسخة من بيئة النظام وحقن الـ Secrets جواها عشان ملف config يشوفها
+    bot_env = os.environ.copy()
+    for key, value in st.secrets.items():
+        bot_env[key] = str(value)
+    
+    # 3. تشغيل ملف bot.py مباشرة كـ Process منفصل في الخلفية
+    process = subprocess.Popen(["python", "bot.py"], env=bot_env)
+    return process
 
-# تشغيل البوت في Thread منفصل عشان السيرفر ما يعلقش
-if "bot_thread" not in st.session_state:
-    st.session_state.bot_thread = threading.Thread(target=run_bot, daemon=True)
-    st.session_state.bot_thread.start()
+# تنفيذ التشغيل تلقائياً أول ما السيرفر يفتح
+try:
+    bot_process = run_my_bot()
+    st.success("🟢 البوت تم تشغيله بنجاح وأمان في الخلفية لمدة 24 ساعة! 🚀")
+    st.balloons()
+except Exception as e:
+    st.error(f"❌ حدث خطأ أثناء تشغيل السيرفر: {e}")
