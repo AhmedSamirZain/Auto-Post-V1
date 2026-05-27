@@ -95,7 +95,11 @@ async def get_account_name(cookies_json: str) -> str:
                     m = re.search(r'<title>([^<]+)</title>', body)
                     if m:
                         name = _clean_name(m.group(1))
-                        skip_words = ["facebook", "log in", "sign up", "error", "login", "خطأ", "تسجيل"]
+                        skip_words = [
+                            "facebook", "log in", "sign up", "error", "login",
+                            "خطأ", "تسجيل", "غير متوفر", "هذا المتصفح",
+                            "not available", "not supported", "page not found",
+                        ]
                         if name and not any(w in name.lower() for w in skip_words) and len(name) > 1:
                             return name
 

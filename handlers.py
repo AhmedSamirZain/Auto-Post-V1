@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 def _escape_md(text: str) -> str:
-    """Escape special Markdown v1 characters in user-generated content."""
+    """Strip Markdown v1 special chars from user-generated content (v1 has no escape)."""
     if not text:
         return ""
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+    return str(text).replace("_", " ").replace("*", "").replace("`", "'").replace("[", "(").replace("]", ")")
 
 # ── States ────────────────────────────────────────────────────────────────────
 CAIRO_TZ = pytz.timezone("Africa/Cairo")
@@ -153,9 +153,11 @@ async def _edit(update: Update, text: str, markup=None):
     else:
         await update.message.reply_text(text, **kw)
 
-async def _send(update: Update, text: str, reply_kb=None, inline_kb=None):
+async def _send(update: Update, text: str, reply_kb=None, inline_kb=None, parse_mode=ParseMode.MARKDOWN):
     msg = update.message or update.callback_query.message
-    kw = {"parse_mode": ParseMode.MARKDOWN}
+    kw: dict = {}
+    if parse_mode:
+        kw["parse_mode"] = parse_mode
     if reply_kb:
         kw["reply_markup"] = reply_kb
     elif inline_kb:
@@ -253,8 +255,8 @@ async def _send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _answer(update)
-    await _send_main_menu(update, context)
-    return S_MAIN
+    context.user_data.clear()
+    return await cmd_start(update, context)
 
 
 # ── Nav text router ───────────────────────────────────────────────────────────
@@ -608,23 +610,38 @@ async def cb_acc_fetch_pg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     groups = await db.get_groups(uid)
-    text = (
-        "👥 *إدارة المجموعات*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"المجموعات المحفوظة: *{len(groups)}*\n\n"
-        "اختر مصدر الجروبات:"
+    count  = len(groups)
+    view_row = [btn(f"📋 عرض المجموعات المحفوظة ({count})", "grp_view")] if count else []
+    rows = []
+    if view_row:
+        rows.append(view_row)
+    rows += [
+        [btn("🗂 سحب جروباتي من فيسبوك", "grp_mine")],
+        [btn("🔎 استخراج جروبات شخص آخر", "grp_other")],
+        [btn("🔍 بحث عن جروبات",           "grp_search")],
+        [btn("📋 القوائم المحفوظة",        "grp_lists")],
+        [btn("🗑 حذف جميع الجروبات",       "grp_delete_all")],
+    ]
+    await _send(update,
+        f"👥 *إدارة المجموعات*\n━━━━━━━━━━━━━━━━━━\n\nالمجموعات المحفوظة: *{count}*",
+        inline_kb=ik(*rows)
     )
-    await _send(update, text, inline_kb=ik(
-        [btn("🗂 سحب جروباتي",                 "grp_mine")],
-        [btn("🔎 استخراج جروبات شخص آخر",     "grp_other")],
-        [btn("🔍 بحث عن جروبات",               "grp_search")],
-        [btn("🔍➕ بحث + انضمام",             "grp_search_join")],
-        [btn("👥 استخراج أعضاء جروب",         "grp_members")],
-        [btn("📋 القوائم المحفوظة",            "grp_lists")],
-        [btn("📁 رفع قائمة جروبات",            "grp_upload")],
-        [btn("✅ فحص النشر المباشر",           "grp_check_post")],
-        [btn("🗑 حذف جميع الجروبات",           "grp_delete_all")],
-    ))
+    return S_GROUPS
+
+
+async def cb_grp_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _answer(update)
+    uid = update.effective_user.id
+    groups = await db.get_groups(uid)
+    if not groups:
+        await _edit(update, "لا توجد مجموعات محفوظة.", ik(back_btn("groups")))
+        return S_GROUPS
+    lines = [f"📋 المجموعات المحفوظة ({len(groups)})", "━" * 18, ""]
+    for g in groups[:30]:
+        lines.append(f"• {g.get('group_name','—')}")
+    if len(groups) > 30:
+        lines.append(f"... و {len(groups)-30} مجموعة أخرى")
+    await _send(update, "\n".join(lines), inline_kb=ik(back_btn("groups")), parse_mode=None)
     return S_GROUPS
 
 
@@ -1355,14 +1372,13 @@ async def cb_cmt_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = update.callback_query.data
     if action == "cmt_add":
         return await cb_cmt_add_start(update, context)
+    if action == "cmt_reply":
+        return await cb_cmt_reply_start(update, context)
+    if action == "cmt_mention":
+        return await cb_cmt_mention_start(update, context)
     user = await db.get_user(uid)
     plan = user.get("plan","free") if user else "free"
-    labels = {
-        "cmt_reply":   "الرد على التعليقات",
-        "cmt_mention": "منشن المتفاعلين",
-        "cmt_chatbot": "شات بوت الصفحات",
-    }
-    label = labels.get(action, action)
+    label = {"cmt_chatbot": "شات بوت الصفحات"}.get(action, action)
     if plan == "free":
         await _edit(update,
             f"🔒 *{label}*\n\nهذه الميزة متاحة لمشتركي Pro وما فوق.",
@@ -1370,10 +1386,44 @@ async def cb_cmt_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await _edit(update,
-            f"⏳ *{label}*\n\nجارٍ تفعيل الخاصية…",
+            f"🤖 *شات بوت الصفحات*\n━━━━━━━━━━━━━━━━━━\n\n"
+            f"هذه الخاصية ستتيح لك ضبط ردود تلقائية على تعليقات صفحتك.\n\n"
+            f"قيد التطوير — سيتم إضافتها قريباً.",
             ik(back_btn("comments"))
         )
     return S_COMMENTS
+
+
+async def cb_cmt_reply_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    accs = await db.get_accounts(uid)
+    if not accs:
+        await _edit(update, "❌ يجب ربط حساب فيسبوك أولاً.", ik([btn("👤 الحسابات","accounts")]))
+        return S_COMMENTS
+    context.user_data["cmt_reply"] = {}
+    rows = [[btn(f"👤 {a.get('account_name','حساب')}", f"cmtr_acc_{a['id']}")] for a in accs[:8]]
+    rows.append(back_btn("comments"))
+    await _edit(update,
+        "💬 *الرد على التعليقات — الخطوة 1/3*\n━━━━━━━━━━━━━━━━━━\n\nاختر الحساب:",
+        ik(*rows)
+    )
+    return S_CMT_URL
+
+
+async def cb_cmt_mention_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    accs = await db.get_accounts(uid)
+    if not accs:
+        await _edit(update, "❌ يجب ربط حساب فيسبوك أولاً.", ik([btn("👤 الحسابات","accounts")]))
+        return S_COMMENTS
+    context.user_data["cmt_mention"] = {}
+    rows = [[btn(f"👤 {a.get('account_name','حساب')}", f"cmtm_acc_{a['id']}")] for a in accs[:8]]
+    rows.append(back_btn("comments"))
+    await _edit(update,
+        "😊 *منشن المتفاعلين — الخطوة 1/3*\n━━━━━━━━━━━━━━━━━━\n\nاختر الحساب:",
+        ik(*rows)
+    )
+    return S_CMT_URL
 
 
 async def _show_admin_from_kb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1400,7 +1450,7 @@ async def cb_pagebot_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ik(back_btn("page_bot"))
         )
         return S_PAGE_BOT
-    rows = [[btn(f"📄 {p['name']}", f"pbot_pg_{p['id']}")] for p in pages[:8]]
+    rows = [[btn(f"📄 {p.get('page_name', p.get('name', 'صفحة'))}", f"pbot_pg_{p['id']}")] for p in pages[:8]]
     rows.append(back_btn("page_bot"))
     context.user_data["pagebot"] = {}
     await _edit(update,
@@ -1419,7 +1469,7 @@ async def cb_pbot_pg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not pg:
         return S_PAGE_BOT
     context.user_data["pagebot"]["page_id"]   = str(pg_id)
-    context.user_data["pagebot"]["page_name"] = pg["name"]
+    context.user_data["pagebot"]["page_name"] = pg.get("page_name", pg.get("name", "صفحة"))
     await _edit(update,
         "🤖 *الخطوة 2/5 — رابط منشور فيسبوك*\n━━━━━━━━━━━━━━━━━━\n\n"
         "أرسل رابط المنشور الذي سيردّ عليه البوت:\n"
@@ -1550,7 +1600,7 @@ async def cb_cmt_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return S_COMMENTS
     context.user_data["cmt"] = {}
-    rows = [[btn(f"👤 {a['name']}", f"cmt_acc_{a['id']}")] for a in accs[:8]]
+    rows = [[btn(f"👤 {a.get('account_name', a.get('name', 'حساب'))}", f"cmt_acc_{a['id']}")] for a in accs[:8]]
     rows.append(back_btn("comments"))
     await _edit(update,
         "💬 *إضافة تعليق — الخطوة 1/3*\n━━━━━━━━━━━━━━━━━━\n\nاختر الحساب:",
@@ -2247,13 +2297,13 @@ async def _show_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def _show_activity_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     logs = await db.get_activity_log(uid, limit=15)
-    text = "📋 *سجل النشاط*\n━━━━━━━━━━━━━━━━━━\n\n"
+    lines = ["📋 سجل النشاط", "━" * 18, ""]
     for log in logs:
         e = "✅" if log.get("status") == "success" else "❌"
-        text += f"{e} {_escape_md(log['action'])} — {_fmt_date(log.get('created_at',''))}\n"
+        lines.append(f"{e} {log['action']} — {_fmt_date(log.get('created_at',''))}")
     if not logs:
-        text += "لا يوجد نشاط مسجل."
-    await _send(update, text, inline_kb=ik(back_btn("tools_cb")))
+        lines.append("لا يوجد نشاط مسجل.")
+    await _send(update, "\n".join(lines), inline_kb=ik(back_btn("tools_cb")), parse_mode=None)
     return S_TOOLS
 
 
@@ -2425,7 +2475,7 @@ async def adm_got_uid(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
         return S_ADMIN
-    rows = [[btn(f"{p['label']}", f"adm_plan_{p['name']}")] for p in PLAN_LIMITS.values()]
+    rows = [[btn(f"{p['label']}", f"adm_plan_{pkey}")] for pkey, p in PLAN_LIMITS.items()]
     rows.append(back_btn("adm_menu"))
     await _send(update,
         f"👤 *{target.get('full_name',uid)}*\nالخطة: {_plan_label(target.get('plan','free'))}\n\nاختر الخطة الجديدة:",
@@ -2687,6 +2737,7 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_grp_delete_all,  pattern="^grp_delete_all$"),
                 CallbackQueryHandler(cb_grp_confirm_del, pattern="^grp_confirm_del$"),
                 CallbackQueryHandler(cb_grp_lists,       pattern="^grp_lists$"),
+                CallbackQueryHandler(cb_grp_view,        pattern="^grp_view$"),
                 CallbackQueryHandler(cb_grp_check_post,  pattern="^grp_check_post$"),
                 CallbackQueryHandler(cb_grp_vip,         pattern="^(grp_other|grp_members|grp_upload)$"),
             ],
@@ -2757,9 +2808,11 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_cmt_vip, pattern="^(cmt_add|cmt_reply|cmt_mention|cmt_chatbot)$"),
             ],
             S_CMT_URL: [
-                CallbackQueryHandler(cb_cmt_acc, pattern="^cmt_acc_\\d+$"),
+                CallbackQueryHandler(cb_cmt_acc,   pattern="^cmt_acc_\\d+$"),
+                CallbackQueryHandler(cb_cmt_acc,   pattern="^cmtr_acc_\\d+$"),
+                CallbackQueryHandler(cb_cmt_acc,   pattern="^cmtm_acc_\\d+$"),
                 MessageHandler(any_text, cmt_got_url),
-                CallbackQueryHandler(cb_comments, pattern="^comments$"),
+                CallbackQueryHandler(cb_comments,  pattern="^comments$"),
             ],
             S_CMT_TEXT: [
                 MessageHandler(any_text, cmt_got_text),
