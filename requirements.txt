@@ -6,3 +6,13 @@ playwright
 aiofiles
 httpx
 pytz
+aiofiles
+aiosqlite
+apscheduler
+httpx
+playwright
+python-telegram-bot
+pytz
+streamlit
+telegram
+yt-dlp
