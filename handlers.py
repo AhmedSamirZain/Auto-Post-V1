@@ -86,6 +86,7 @@ def _kb(rows, **kw):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, **kw)
 
 MAIN_KB = _kb([
+    ["🏠 الرئيسية"],
     ["👤 الحسابات",   "👥 المجموعات"],
     ["📄 الصفحات",   "🚀 الحملات"],
     ["💬 التعليقات", "💎 خطتي"],
@@ -107,6 +108,7 @@ TOOLS_KB = _kb([
 ])
 
 ADMIN_KB = _kb([
+    ["🏠 الرئيسية"],
     ["👤 الحسابات",   "👥 المجموعات"],
     ["📄 الصفحات",   "🚀 الحملات"],
     ["💬 التعليقات", "💎 خطتي"],
@@ -2358,7 +2360,10 @@ async def fallback_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await nav_router(update, context)
     await _send_main_menu(update, context)
     return S_MAIN
-
+# Admin Panal
+async def _show_admin_from_kb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # بتنادي على لوحة الأدمن مباشرة لأنها معاها في نفس الملف
+    return await cmd_admin(update, context)
 
 # ══════════════════════════════════════════════════════════════
 #  ConversationHandler builder
