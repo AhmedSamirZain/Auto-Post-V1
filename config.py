@@ -4,14 +4,14 @@
 import os
 
 # ── معلومات البوت والأدمن ──────────────────────────────────
-BOT_TOKEN   = os.getenv("BOT_TOKEN", "")
-ADMIN_ID    = int(os.getenv("ADMIN_ID", "941670953"))
+BOT_TOKEN    = os.getenv("BOT_TOKEN")
+ADMIN_ID     = int(os.getenv("ADMIN_ID", 0))
 BOT_NAME    = "Auto Post Bot"
 BOT_VERSION = "2.0"
 
 # ── معلومات الدفع ─────────────────────────────────────────
-INSTAPAY_NUMBER   = "01XXXXXXXXX"      # رقم إنستاباي
-VODAFONE_CASH     = "01XXXXXXXXX"      # محفظة فودافون كاش
+INSTAPAY_ADDRESS = os.getenv("INSTAPAY_ADDRESS")
+VODAFONE_CASH    = os.getenv("VODAFONE_CASH")# محفظة فودافون كاش
 PAYMENT_NAME      = "محمد ..."         # اسم صاحب المحفظة
 
 # ── روابط ─────────────────────────────────────────────────
