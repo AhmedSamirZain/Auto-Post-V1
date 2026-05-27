@@ -158,6 +158,20 @@ async def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS subscription_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                plan TEXT NOT NULL,
+                duration_days INTEGER NOT NULL,
+                amount TEXT NOT NULL,
+                screenshot_file_id TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )
+        """)
         await _seed_default_plans(db)
         await db.commit()
 
@@ -564,6 +578,49 @@ async def get_pending_campaigns():
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM campaigns WHERE status = 'pending' AND schedule_time IS NOT NULL"
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+# ── Subscription Requests ─────────────────────────────────────────────────────
+
+async def create_subscription_request(user_id: int, plan: str, duration_days: int,
+                                       amount: str, screenshot_file_id: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """INSERT INTO subscription_requests
+               (user_id, plan, duration_days, amount, screenshot_file_id, status)
+               VALUES (?,?,?,?,?,'pending')""",
+            (user_id, plan, duration_days, amount, screenshot_file_id)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_subscription_request(request_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscription_requests WHERE id = ?", (request_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def update_subscription_request(request_id: int, status: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE subscription_requests SET status = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, request_id)
+        )
+        await db.commit()
+
+
+async def get_pending_subscription_requests():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscription_requests WHERE status = 'pending' ORDER BY created_at DESC"
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 

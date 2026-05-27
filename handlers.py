@@ -43,7 +43,8 @@ CAIRO_TZ = pytz.timezone("Africa/Cairo")
     S_ADMIN_PROMO,
     S_PAGE_BOT, S_PAGE_BOT_URL, S_PAGE_BOT_TPL, S_PAGE_BOT_KW,
     S_PAGE_BOT_RCMT, S_PAGE_BOT_RDM,
-) = range(38)
+    S_SUB_SCREENSHOT,
+) = range(39)
 
 
 def _cairo_now() -> datetime:
@@ -1726,30 +1727,240 @@ async def cb_plan_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_plan_upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _answer(update)
-    plans = PLAN_LIMITS
-    text = "🛒 *شراء العضوية*\n━━━━━━━━━━━━━━━━━━\n\n"
-    rows = []
-    for pname, p in plans.items():
-        if pname == "free":
-            continue
-        text += (
-            f"*{p['label']}*\n"
-            f"السعر: {p['price']}\n"
-            f"الحسابات: {p['max_accounts']} | المجموعات: {p['max_groups']}\n\n"
-        )
-        rows.append([btn(f"💳 اشترك — {p['label']}", f"buy_{pname}")])
-
-    text += (
-        f"\n💳 *طرق الدفع:*\n"
-        f"• إنستاباي: `{INSTAPAY_ADDRESS}`\n"
-        f"• فودافون كاش: `{VODAFONE_CASH}`\n"
-        f"• الاسم: {PAYMENT_NAME}\n\n"
-        f"بعد الدفع أرسل الإيصال للدعم: {SUPPORT_USERNAME}"
+    text = (
+        "🛒 *اختر الخطة المناسبة لك*\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "⭐ *Pro — 99 جنيه/شهر*\n"
+        "• 3 حسابات فيسبوك\n"
+        "• 300 مجموعة\n"
+        "• 20 حملة\n"
+        "• جدولة + قوالب + صفحات\n\n"
+        "👑 *Unlimited — 199 جنيه/شهر*\n"
+        "• 10 حسابات فيسبوك\n"
+        "• غير محدود مجموعات\n"
+        "• غير محدود حملات\n"
+        "• كل المميزات + أولوية دعم\n\n"
+        "اختر الخطة التي تريد الاشتراك فيها:"
     )
-    rows.append([btn("🔑 تفعيل كود","activate_code_btn")])
-    rows.append(back_btn("my_plan"))
+    rows = [
+        [btn("⭐ Pro — شهر (99 جنيه)",      "sub_pro_30_99")],
+        [btn("⭐ Pro — 3 أشهر (250 جنيه)",   "sub_pro_90_250")],
+        [btn("👑 Unlimited — شهر (199 جنيه)", "sub_unl_30_199")],
+        [btn("👑 Unlimited — 3 أشهر (499 جنيه)", "sub_unl_90_499")],
+        [btn("🔑 تفعيل كود ترقية", "activate_code_btn")],
+        back_btn("my_plan"),
+    ]
     await _edit(update, text, ik(*rows))
     return S_MY_PLAN
+
+
+async def cb_sub_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User picked a plan+duration — show payment info and ask for screenshot."""
+    await _answer(update)
+    data = update.callback_query.data  # e.g. sub_pro_30_99
+    parts = data.split("_")
+    # format: sub_{plan}_{days}_{amount}
+    plan = parts[1]                        # pro / unl
+    days = int(parts[2])
+    amount = parts[3]                      # e.g. 99
+    plan_key = "unlimited" if plan == "unl" else "pro"
+    plan_label_str = _plan_label(plan_key)
+
+    context.user_data["sub"] = {
+        "plan": plan_key,
+        "days": days,
+        "amount": f"{amount} جنيه",
+    }
+
+    text = (
+        f"💳 *إتمام الاشتراك — {plan_label_str}*\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 الخطة: *{plan_label_str}*\n"
+        f"📅 المدة: *{days} يوم*\n"
+        f"💰 المبلغ: *{amount} جنيه مصري*\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💳 *طرق الدفع:*\n\n"
+        f"📱 *فودافون كاش:*\n"
+        f"`{VODAFONE_CASH}`\n\n"
+        f"🏦 *إنستاباي:*\n"
+        f"`{INSTAPAY_ADDRESS}`\n\n"
+        f"👤 الاسم: *{PAYMENT_NAME}*\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"✅ *بعد التحويل:*\n"
+        f"أرسل صورة (سكرين شوت) لإثبات التحويل هنا مباشرة 👇"
+    )
+    await _edit(update, text, ik([btn("❌ إلغاء", "plan_upgrade")]))
+    return S_SUB_SCREENSHOT
+
+
+async def sub_got_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User sent the payment screenshot — save it and notify admin."""
+    msg = update.message
+    uid = update.effective_user.id
+    sub = context.user_data.get("sub", {})
+
+    if not sub:
+        await _send(update, "❌ انتهت الجلسة. ابدأ من جديد.", reply_kb=_get_main_kb(uid))
+        return S_MAIN
+
+    # Get file_id from photo or document
+    file_id = None
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+    elif msg.document and msg.document.mime_type and "image" in msg.document.mime_type:
+        file_id = msg.document.file_id
+
+    if not file_id:
+        await _send(update,
+            "⚠️ أرسل *صورة* (سكرين شوت) لإثبات التحويل.\nلا نقبل ملفات أخرى.",
+            inline_kb=ik([btn("❌ إلغاء", "plan_upgrade")])
+        )
+        return S_SUB_SCREENSHOT
+
+    plan     = sub["plan"]
+    days     = sub["days"]
+    amount   = sub["amount"]
+    user_obj = await db.get_user(uid)
+    full_name = user_obj.get("full_name", "") if user_obj else ""
+    username  = user_obj.get("username", "") if user_obj else ""
+
+    # Save request to DB
+    req_id = await db.create_subscription_request(uid, plan, days, amount, file_id)
+
+    # Confirm to user
+    await _send(update,
+        f"✅ *تم استلام طلبك بنجاح!*\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"📋 رقم الطلب: *#{req_id}*\n"
+        f"📦 الخطة: *{_plan_label(plan)}*\n"
+        f"💰 المبلغ: *{amount}*\n\n"
+        f"⏳ سيتم مراجعة طلبك خلال 24 ساعة.\n"
+        f"سيصلك إشعار فور التفعيل 🎉",
+        reply_kb=_get_main_kb(uid)
+    )
+
+    # Notify admin
+    admin_text = (
+        f"💳 *طلب اشتراك جديد #{req_id}*\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 الاسم: *{full_name}*\n"
+        f"🆔 ID: `{uid}`\n"
+        f"📱 يوزر: @{username or 'بدون'}\n\n"
+        f"📦 الباقة: *{_plan_label(plan)}*\n"
+        f"📅 المدة: *{days} يوم*\n"
+        f"💰 المبلغ: *{amount}*\n"
+    )
+    admin_kb = ik(
+        [btn(f"✅ تفعيل", f"sub_approve_{req_id}"),
+         btn(f"❌ رفض",   f"sub_reject_{req_id}")],
+    )
+    try:
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=file_id,
+            caption=admin_text,
+            reply_markup=admin_kb,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception as e:
+        logger.error(f"Could not notify admin about sub request #{req_id}: {e}")
+
+    context.user_data.pop("sub", None)
+    return S_MAIN
+
+
+async def cb_sub_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin approves subscription request."""
+    await _answer(update)
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    req_id = int(update.callback_query.data.replace("sub_approve_", ""))
+    req = await db.get_subscription_request(req_id)
+    if not req:
+        await _answer(update, "❌ الطلب غير موجود!", True)
+        return
+
+    if req["status"] != "pending":
+        await _answer(update, f"الطلب تمت معالجته مسبقاً ({req['status']})", True)
+        return
+
+    # Activate plan for user
+    await db.assign_user_plan(req["user_id"], req["plan"], req["duration_days"])
+    await db.update_subscription_request(req_id, "approved")
+
+    # Edit admin message to show approved
+    try:
+        caption = update.callback_query.message.caption or ""
+        await update.callback_query.edit_message_caption(
+            caption=caption + f"\n\n✅ *تم التفعيل بواسطة الأدمن*",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception:
+        pass
+
+    # Notify user
+    try:
+        await context.bot.send_message(
+            chat_id=req["user_id"],
+            text=(
+                f"🎉 *تم تفعيل اشتراكك!*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"📦 الخطة: *{_plan_label(req['plan'])}*\n"
+                f"📅 المدة: *{req['duration_days']} يوم*\n\n"
+                f"استمتع بجميع مميزات الخطة الآن 🚀"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception as e:
+        logger.error(f"Could not notify user {req['user_id']} of approval: {e}")
+
+    await _answer(update, f"✅ تم تفعيل خطة {_plan_label(req['plan'])} للمستخدم {req['user_id']}", True)
+
+
+async def cb_sub_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin rejects subscription request."""
+    await _answer(update)
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    req_id = int(update.callback_query.data.replace("sub_reject_", ""))
+    req = await db.get_subscription_request(req_id)
+    if not req:
+        await _answer(update, "❌ الطلب غير موجود!", True)
+        return
+
+    if req["status"] != "pending":
+        await _answer(update, f"الطلب تمت معالجته مسبقاً ({req['status']})", True)
+        return
+
+    await db.update_subscription_request(req_id, "rejected")
+
+    # Edit admin message
+    try:
+        caption = update.callback_query.message.caption or ""
+        await update.callback_query.edit_message_caption(
+            caption=caption + f"\n\n❌ *تم الرفض بواسطة الأدمن*",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception:
+        pass
+
+    # Notify user
+    try:
+        await context.bot.send_message(
+            chat_id=req["user_id"],
+            text=(
+                f"❌ *تم رفض طلب اشتراكك*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"للاستفسار تواصل مع الدعم: {SUPPORT_USERNAME}"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception:
+        pass
+
+    await _answer(update, f"❌ تم رفض الطلب #{req_id}", True)
 
 
 async def cb_plan_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2085,6 +2296,9 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _show_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = await db.get_stats()
+    pending_subs = await db.get_pending_subscription_requests()
+    pending_count = len(pending_subs)
+    pending_badge = f" 🔴 ({pending_count})" if pending_count else ""
     text = (
         "🔐 *لوحة الأدمن — Auto Post Bot*\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
@@ -2094,6 +2308,7 @@ async def _show_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🚀 الحملات: *{stats['campaigns']}*\n"
     )
     kb = ik(
+        [btn(f"💳 طلبات الاشتراك{pending_badge}", "adm_sub_requests")],
         [btn("👥 المستخدمون",          "adm_users")],
         [btn("💎 إدارة الخطط",         "adm_plans"),
          btn("🔑 كودات الترقية",       "adm_promos")],
@@ -2103,6 +2318,37 @@ async def _show_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     msg_fn = update.message.reply_text if update.message else update.callback_query.message.reply_text
     await msg_fn(text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+    return S_ADMIN
+
+
+async def cb_adm_sub_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views pending subscription requests."""
+    await _answer(update)
+    if update.effective_user.id != ADMIN_ID:
+        return S_MAIN
+
+    reqs = await db.get_pending_subscription_requests()
+    if not reqs:
+        await _edit(update,
+            "💳 *طلبات الاشتراك*\n━━━━━━━━━━━━━━━━━━\n\n✅ لا توجد طلبات معلقة حالياً.",
+            ik(back_btn("adm_menu"))
+        )
+        return S_ADMIN
+
+    text = f"💳 *طلبات الاشتراك المعلقة ({len(reqs)})*\n━━━━━━━━━━━━━━━━━━\n\n"
+    rows = []
+    for r in reqs[:10]:
+        text += (
+            f"• *#{r['id']}* — ID: `{r['user_id']}`\n"
+            f"  الخطة: {_plan_label(r['plan'])} | {r['duration_days']} يوم | {r['amount']}\n"
+            f"  📅 {r['created_at'][:16]}\n\n"
+        )
+        rows.append([
+            btn(f"✅ تفعيل #{r['id']}", f"sub_approve_{r['id']}"),
+            btn(f"❌ رفض #{r['id']}",   f"sub_reject_{r['id']}"),
+        ])
+    rows.append(back_btn("adm_menu"))
+    await _edit(update, text, ik(*rows))
     return S_ADMIN
 
 
@@ -2391,6 +2637,9 @@ def build_conversation_handler() -> ConversationHandler:
         CallbackQueryHandler(cb_adm_menu,         pattern="^adm_menu$"),
         CallbackQueryHandler(cb_plan_upgrade,     pattern="^plan_upgrade$"),
         CallbackQueryHandler(cb_lang,             pattern="^lang_(ar|en)$"),
+        CallbackQueryHandler(cb_sub_select,       pattern="^sub_(pro|unl)_\\d+_\\d+$"),
+        CallbackQueryHandler(cb_sub_approve,      pattern="^sub_approve_\\d+$"),
+        CallbackQueryHandler(cb_sub_reject,       pattern="^sub_reject_\\d+$"),
     ]
 
     return ConversationHandler(
@@ -2584,15 +2833,18 @@ def build_conversation_handler() -> ConversationHandler:
 
             S_ADMIN: shared_cbs + [
                 MessageHandler(nav_filter, nav_router),
-                CallbackQueryHandler(cb_adm_users,    pattern="^adm_users$"),
-                CallbackQueryHandler(cb_adm_stats,    pattern="^adm_stats$"),
-                CallbackQueryHandler(cb_adm_assign,   pattern="^adm_assign$"),
-                CallbackQueryHandler(cb_adm_broadcast,pattern="^adm_broadcast$"),
-                CallbackQueryHandler(cb_adm_plans,    pattern="^adm_plans$"),
-                CallbackQueryHandler(cb_adm_promos,   pattern="^adm_promos$"),
-                CallbackQueryHandler(cb_adm_new_promo,pattern="^adm_new_promo$"),
-                CallbackQueryHandler(cb_adm_force,    pattern="^adm_force_\\d+$"),
-                CallbackQueryHandler(cb_adm_plan,     pattern="^adm_plan_\\w+$"),
+                CallbackQueryHandler(cb_adm_users,        pattern="^adm_users$"),
+                CallbackQueryHandler(cb_adm_stats,        pattern="^adm_stats$"),
+                CallbackQueryHandler(cb_adm_assign,       pattern="^adm_assign$"),
+                CallbackQueryHandler(cb_adm_broadcast,    pattern="^adm_broadcast$"),
+                CallbackQueryHandler(cb_adm_plans,        pattern="^adm_plans$"),
+                CallbackQueryHandler(cb_adm_promos,       pattern="^adm_promos$"),
+                CallbackQueryHandler(cb_adm_new_promo,    pattern="^adm_new_promo$"),
+                CallbackQueryHandler(cb_adm_force,        pattern="^adm_force_\\d+$"),
+                CallbackQueryHandler(cb_adm_plan,         pattern="^adm_plan_\\w+$"),
+                CallbackQueryHandler(cb_adm_sub_requests, pattern="^adm_sub_requests$"),
+                CallbackQueryHandler(cb_sub_approve,      pattern="^sub_approve_\\d+$"),
+                CallbackQueryHandler(cb_sub_reject,       pattern="^sub_reject_\\d+$"),
             ],
             S_ADMIN_BROADCAST: [
                 MessageHandler(any_text, adm_got_broadcast),
@@ -2615,6 +2867,13 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_promo_plan, pattern="^promo_p_\\w+$"),
                 CallbackQueryHandler(cb_promo_days, pattern="^pd_\\d+$"),
                 CallbackQueryHandler(cb_adm_menu,   pattern="^adm_menu$"),
+            ],
+
+            S_SUB_SCREENSHOT: [
+                MessageHandler(filters.PHOTO | filters.Document.IMAGE, sub_got_screenshot),
+                MessageHandler(filters.Document.ALL, sub_got_screenshot),
+                CallbackQueryHandler(cb_plan_upgrade, pattern="^plan_upgrade$"),
+                CallbackQueryHandler(cb_my_plan,      pattern="^my_plan$"),
             ],
         },
         fallbacks=[
