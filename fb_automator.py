@@ -104,6 +104,12 @@ async def get_account_name(cookies_json: str) -> str:
                             return name
 
                     # Try profile header / h1 / strong tags
+                    skip_words_all = [
+                        "facebook", "log in", "sign up", "error", "login",
+                        "خطأ", "تسجيل", "غير متوفر", "هذا المتصفح",
+                        "not available", "not supported", "page not found",
+                        "فيسبوك", "متصفح", "checkpoint", "security",
+                    ]
                     for pat in [
                         r'<h1[^>]*>([^<]{2,60})</h1>',
                         r'<strong[^>]*>([^<]{2,60})</strong>',
@@ -113,7 +119,8 @@ async def get_account_name(cookies_json: str) -> str:
                         m2 = re.search(pat, body)
                         if m2:
                             name = _clean_name(m2.group(1))
-                            if name and len(name) > 1 and "facebook" not in name.lower():
+                            nl = name.lower() if name else ""
+                            if name and len(name) > 1 and not any(w in nl for w in skip_words_all):
                                 return name
                 except Exception as e:
                     logger.debug(f"get_account_name url={url} error: {e}")
@@ -215,54 +222,62 @@ async def fetch_groups(cookies_json: str, max_pages: int = 8) -> list:
     return groups
 
 
+_SKIP_GROUP_SLUGS = {
+    "feed", "discover", "joins", "create", "search", "members",
+    "about", "videos", "photos", "your_groups", "suggested",
+}
+
+def _add_group(groups, seen, gid, name, url=None):
+    if gid and gid not in seen and name and len(name) > 1:
+        seen.add(gid)
+        groups.append({
+            "group_id":      gid,
+            "group_name":    name[:100],
+            "group_url":     url or f"https://www.facebook.com/groups/{gid}",
+            "members_count": 0,
+        })
+
+
 def _extract_groups_from_html(html: str, groups: list, seen: set):
     """Extract groups from mbasic HTML into the groups list."""
 
-    # Pattern 1: numeric group IDs
+    # Pattern 1: numeric group IDs in href
     for m in re.finditer(
-        r'href="(?:https://mbasic\.facebook\.com)?(/groups/(\d{6,20})/?[^"]*)"[^>]*>([^<]{2,80})</a>',
+        r'href="[^"]*?/groups/(\d{6,20})/?[^"]*"[^>]*>([^<]{2,80})</a>',
         html
     ):
-        gid = m.group(2)
-        name = _clean_name(m.group(3))
-        if gid and gid not in seen and name and len(name) > 1:
-            seen.add(gid)
-            groups.append({
-                "group_id":      gid,
-                "group_name":    name[:100],
-                "group_url":     f"https://www.facebook.com/groups/{gid}",
-                "members_count": 0,
-            })
+        gid, name = m.group(1), _clean_name(m.group(2))
+        _add_group(groups, seen, gid, name)
 
     # Pattern 2: slug-based group IDs
     for m2 in re.finditer(
-        r'href="(?:https://mbasic\.facebook\.com)?(/groups/([A-Za-z][A-Za-z0-9._]{3,})/?)(?:\?[^"]*)?"\s*[^>]*>([^<]{2,80})</a>',
+        r'href="[^"]*?/groups/([A-Za-z][A-Za-z0-9._]{3,80})/?"[^>]*>([^<]{2,80})</a>',
         html
     ):
-        slug = m2.group(2)
-        name = _clean_name(m2.group(3))
-        skip_slugs = {"feed", "discover", "joins", "create", "search", "members", "about", "videos", "photos"}
-        if slug and slug not in seen and slug not in skip_slugs and name and len(name) > 1:
-            seen.add(slug)
-            groups.append({
-                "group_id":      slug,
-                "group_name":    name[:100],
-                "group_url":     f"https://www.facebook.com/groups/{slug}",
-                "members_count": 0,
-            })
+        slug, name = m2.group(1), _clean_name(m2.group(2))
+        if slug.lower() not in _SKIP_GROUP_SLUGS:
+            _add_group(groups, seen, slug, name)
 
-    # Pattern 3: data-store or JSON embedded groups
-    for m3 in re.finditer(r'"groupID"\s*:\s*"?(\d{6,20})"?.*?"name"\s*:\s*"([^"]{2,80})"', html):
-        gid = m3.group(1)
-        name = _clean_name(m3.group(2))
-        if gid and gid not in seen and name:
-            seen.add(gid)
-            groups.append({
-                "group_id":      gid,
-                "group_name":    name[:100],
-                "group_url":     f"https://www.facebook.com/groups/{gid}",
-                "members_count": 0,
-            })
+    # Pattern 3: JSON "groupID"
+    for m3 in re.finditer(r'"groupID"\s*:\s*"?(\d{6,20})"?[^}]{0,200}"name"\s*:\s*"([^"]{2,80})"', html):
+        gid, name = m3.group(1), _clean_name(m3.group(2))
+        _add_group(groups, seen, gid, name)
+
+    # Pattern 4: broad – any link whose text follows href containing /groups/ID
+    for m4 in re.finditer(
+        r'<a\s[^>]*href="[^"]*?/groups/(\d{6,20})[^"]*"[^>]*>\s*([^<]{2,80}?)\s*</a>',
+        html
+    ):
+        gid, name = m4.group(1), _clean_name(m4.group(2))
+        _add_group(groups, seen, gid, name)
+
+    # Pattern 5: mbasic group listing — table/list rows with group links
+    for m5 in re.finditer(
+        r'<td[^>]*>.*?<a[^>]+href="[^"]*?/groups/(\d{6,20})[^"]*"[^>]*>([^<]{2,80})</a>',
+        html, re.DOTALL
+    ):
+        gid, name = m5.group(1), _clean_name(m5.group(2))
+        _add_group(groups, seen, gid, name)
 
 
 def _find_next_groups_url(html: str) -> str | None:
@@ -343,9 +358,16 @@ def _extract_pages_from_html(html: str, pages: list, seen: set):
                 "access_token": "",
             })
 
-    # Pattern 2: /<slug>/?ref=... links (simple page slugs)
+    # Pattern 2: /<slug>/?ref=... links (simple page slugs) — strict: must not be a known non-page slug
+    _nav_slugs = {
+        "groups", "profile.php", "people", "pages", "home", "friends",
+        "messages", "notifications", "bookmarks", "settings", "help",
+        "privacy", "login", "logout", "recover", "checkpoint", "search",
+        "videos", "photos", "stories", "events", "marketplace", "gaming",
+        "feeds", "watch", "reels", "explore", "saved", "me",
+    }
     for m2 in re.finditer(
-        r'href="(?:https://mbasic\.facebook\.com)?/([A-Za-z][A-Za-z0-9._]{3,50})/?\?(?:ref|sk)[^"]*"[^>]*>\s*([^<]{2,80})\s*</a>',
+        r'href="(?:https://mbasic\.facebook\.com)?/([A-Za-z][A-Za-z0-9._]{3,50})/manage/?\?(?:ref|sk)[^"]*"[^>]*>\s*([^<]{2,80})\s*</a>',
         html
     ):
         slug = m2.group(1)

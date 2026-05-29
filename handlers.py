@@ -2715,15 +2715,21 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_acc_fetch_pg,   pattern="^acc_fetch_pg_\\d+$"),
             ],
             S_ACC_NAME: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, acc_got_name),
+                CallbackQueryHandler(cb_main,     pattern="^main$"),
                 CallbackQueryHandler(cb_accounts, pattern="^accounts$"),
             ],
             S_ACC_COOKIES: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, acc_got_cookies),
+                CallbackQueryHandler(cb_main,     pattern="^main$"),
                 CallbackQueryHandler(cb_accounts, pattern="^accounts$"),
             ],
             S_ACC_PROXY: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, acc_got_proxy),
+                CallbackQueryHandler(cb_main,           pattern="^main$"),
                 CallbackQueryHandler(cb_acc_skip_proxy, pattern="^acc_skip_proxy$"),
                 CallbackQueryHandler(cb_acc_continue,   pattern="^acc_continue$"),
                 CallbackQueryHandler(cb_accounts,       pattern="^accounts$"),
@@ -2742,7 +2748,9 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_grp_vip,         pattern="^(grp_other|grp_members|grp_upload)$"),
             ],
             S_GRP_SEARCH: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, grp_got_search),
+                CallbackQueryHandler(cb_main,   pattern="^main$"),
                 CallbackQueryHandler(cb_groups, pattern="^groups$"),
             ],
 
@@ -2765,7 +2773,9 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(lambda u, c: (u.callback_query.answer(), S_PAGES)[1] if True else None, pattern="^pages$"),
             ],
             S_PAGE_STORY_LINK: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, story_got_time),
+                CallbackQueryHandler(cb_main,            pattern="^main$"),
                 CallbackQueryHandler(cb_story_skip_link, pattern="^story_skip_link$"),
                 CallbackQueryHandler(cb_story_now,       pattern="^story_now$"),
                 CallbackQueryHandler(cb_story_confirm,   pattern="^story_confirm$"),
@@ -2778,13 +2788,17 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_camp_log,        pattern="^camp_scheduled$"),
             ],
             S_CAMP_CAPTION: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, camp_got_caption),
-                CallbackQueryHandler(cb_camp_skip_cap,   pattern="^camp_skip_cap$"),
-                CallbackQueryHandler(cb_campaigns,       pattern="^campaigns$"),
+                CallbackQueryHandler(cb_main,          pattern="^main$"),
+                CallbackQueryHandler(cb_camp_skip_cap, pattern="^camp_skip_cap$"),
+                CallbackQueryHandler(cb_campaigns,     pattern="^campaigns$"),
             ],
             S_CAMP_MEDIA: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(filters.VIDEO | filters.PHOTO, camp_got_media),
                 MessageHandler(any_text, camp_got_media),
+                CallbackQueryHandler(cb_main,            pattern="^main$"),
                 CallbackQueryHandler(cb_camp_skip_media, pattern="^camp_skip_media$"),
             ],
             S_CAMP_TARGETS: [
@@ -2796,7 +2810,9 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_campaigns,       pattern="^campaigns$"),
             ],
             S_CAMP_SCHEDULE: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, camp_got_schedule),
+                CallbackQueryHandler(cb_main,               pattern="^main$"),
                 CallbackQueryHandler(cb_camp_now,          pattern="^camp_now$"),
                 CallbackQueryHandler(cb_camp_sched_prompt, pattern="^camp_sched_prompt$"),
                 CallbackQueryHandler(cb_camp_sched_confirm,pattern="^camp_sched_confirm$"),
@@ -2808,6 +2824,8 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_cmt_vip, pattern="^(cmt_add|cmt_reply|cmt_mention|cmt_chatbot)$"),
             ],
             S_CMT_URL: [
+                MessageHandler(nav_filter, nav_router),
+                CallbackQueryHandler(cb_main,      pattern="^main$"),
                 CallbackQueryHandler(cb_cmt_acc,   pattern="^cmt_acc_\\d+$"),
                 CallbackQueryHandler(cb_cmt_acc,   pattern="^cmtr_acc_\\d+$"),
                 CallbackQueryHandler(cb_cmt_acc,   pattern="^cmtm_acc_\\d+$"),
@@ -2815,7 +2833,9 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_comments,  pattern="^comments$"),
             ],
             S_CMT_TEXT: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, cmt_got_text),
+                CallbackQueryHandler(cb_main,        pattern="^main$"),
                 CallbackQueryHandler(cb_cmt_confirm, pattern="^cmt_confirm$"),
                 CallbackQueryHandler(cb_comments,    pattern="^comments$"),
             ],
@@ -2827,24 +2847,34 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_pbot_pg,      pattern="^pbot_pg_.+$"),
             ],
             S_PAGE_BOT_URL: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, pagebot_got_url),
+                CallbackQueryHandler(cb_main, pattern="^main$"),
                 CallbackQueryHandler(lambda u,c: _show_page_bot(u,c), pattern="^page_bot$"),
             ],
             S_PAGE_BOT_TPL: [
+                MessageHandler(nav_filter, nav_router),
                 CallbackQueryHandler(cb_pbot_tpl, pattern="^pbot_tpl_.+$"),
+                CallbackQueryHandler(cb_main, pattern="^main$"),
                 CallbackQueryHandler(lambda u,c: _show_page_bot(u,c), pattern="^page_bot$"),
             ],
             S_PAGE_BOT_KW: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, pagebot_got_kw),
+                CallbackQueryHandler(cb_main, pattern="^main$"),
                 CallbackQueryHandler(lambda u,c: _show_page_bot(u,c), pattern="^page_bot$"),
             ],
             S_PAGE_BOT_RCMT: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, pagebot_got_rcmt),
+                CallbackQueryHandler(cb_main,           pattern="^main$"),
                 CallbackQueryHandler(cb_pbot_rcmt_skip, pattern="^pbot_rcmt_skip$"),
                 CallbackQueryHandler(lambda u,c: _show_page_bot(u,c), pattern="^page_bot$"),
             ],
             S_PAGE_BOT_RDM: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, pagebot_got_rdm),
+                CallbackQueryHandler(cb_main,          pattern="^main$"),
                 CallbackQueryHandler(cb_pbot_rdm_skip, pattern="^pbot_rdm_skip$"),
                 CallbackQueryHandler(lambda u,c: _show_page_bot(u,c), pattern="^page_bot$"),
             ],
@@ -2861,7 +2891,9 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_plan_upgrade,      pattern="^plan_upgrade$"),
             ],
             S_ACTIVATE_CODE: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, activate_got_code),
+                CallbackQueryHandler(cb_main,    pattern="^main$"),
                 CallbackQueryHandler(cb_my_plan, pattern="^my_plan$"),
             ],
 
@@ -2884,11 +2916,15 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_tpl_del,   pattern="^tpl_del_\\d+$"),
             ],
             S_TPL_TITLE: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, tpl_got_title),
+                CallbackQueryHandler(cb_main,      pattern="^main$"),
                 CallbackQueryHandler(cb_templates, pattern="^templates_cb$"),
             ],
             S_TPL_CONTENT: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, tpl_got_content),
+                CallbackQueryHandler(cb_main, pattern="^main$"),
             ],
 
             S_ADMIN: shared_cbs + [
@@ -2907,11 +2943,15 @@ def build_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(cb_sub_reject,       pattern="^sub_reject_\\d+$"),
             ],
             S_ADMIN_BROADCAST: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, adm_got_broadcast),
+                CallbackQueryHandler(cb_main,     pattern="^main$"),
                 CallbackQueryHandler(cb_adm_menu, pattern="^adm_menu$"),
             ],
             S_ADMIN_UID: [
+                MessageHandler(nav_filter, nav_router),
                 MessageHandler(any_text, adm_got_uid),
+                CallbackQueryHandler(cb_main,     pattern="^main$"),
                 CallbackQueryHandler(cb_adm_menu, pattern="^adm_menu$"),
             ],
             S_ADMIN_PLAN: [
