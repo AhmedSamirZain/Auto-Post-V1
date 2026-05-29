@@ -64,6 +64,40 @@ def _clean_name(raw: str) -> str:
         return raw.strip()
 
 
+_NAME_SKIP = {
+    "facebook", "log in", "sign up", "error", "login", "sign in",
+    "خطأ", "تسجيل", "غير متوفر", "هذا المتصفح", "فيسبوك",
+    "not available", "not supported", "page not found",
+    "checkpoint", "security", "متصفح", "مجموعات", "أصدقاء",
+    "الرسائل", "الإشعارات", "groups", "friends", "messages",
+}
+
+def _valid_name(n: str) -> bool:
+    if not n or len(n.strip()) < 2:
+        return False
+    nl = n.lower().strip()
+    # Reject if any skip word found
+    if any(w in nl for w in _NAME_SKIP):
+        return False
+    # Reject if it looks like a number or count (e.g. "٩٩", "99")
+    if re.fullmatch(r'[\d\u0660-\u0669٪%+\s]+', nl):
+        return False
+    # Must contain at least one letter (Arabic or Latin)
+    if not re.search(r'[\u0600-\u06FF\u0750-\u077FA-Za-z]', n):
+        return False
+    return True
+
+def _strip_site_suffix(raw: str) -> str:
+    """Remove ' | Facebook', ' | فيسبوك', ' - Facebook' etc from title."""
+    for sep in [' | ', ' - ', ' – ', ' — ']:
+        if sep in raw:
+            parts = [p.strip() for p in raw.split(sep)]
+            # Return the part that's most likely the name (not containing 'facebook'/'فيسبوك')
+            for p in parts:
+                if p and 'facebook' not in p.lower() and 'فيسبوك' not in p:
+                    return p
+    return raw.strip()
+
 async def get_account_name(cookies_json: str) -> str:
     cookies = _parse_cookies(cookies_json)
     jar = _cookies_to_httpx(cookies)
@@ -72,10 +106,9 @@ async def get_account_name(cookies_json: str) -> str:
         return f"حساب_{c_user or 'مجهول'}"
 
     urls_to_try = [
-        f"https://mbasic.facebook.com/profile.php?id={c_user}&v=info",
+        f"https://mbasic.facebook.com/profile.php?id={c_user}",
         f"https://mbasic.facebook.com/{c_user}",
         "https://mbasic.facebook.com/me",
-        "https://mbasic.facebook.com/home.php",
     ]
 
     try:
@@ -91,37 +124,41 @@ async def get_account_name(cookies_json: str) -> str:
                         continue
                     body = r.text
 
-                    # Try <title> tag first
-                    m = re.search(r'<title>([^<]+)</title>', body)
+                    # 1. <title> tag — strip site suffix first
+                    m = re.search(r'<title>([^<]+)</title>', body, re.IGNORECASE)
                     if m:
-                        name = _clean_name(m.group(1))
-                        skip_words = [
-                            "facebook", "log in", "sign up", "error", "login",
-                            "خطأ", "تسجيل", "غير متوفر", "هذا المتصفح",
-                            "not available", "not supported", "page not found",
-                        ]
-                        if name and not any(w in name.lower() for w in skip_words) and len(name) > 1:
+                        name = _strip_site_suffix(_clean_name(m.group(1)))
+                        if _valid_name(name):
                             return name
 
-                    # Try profile header / h1 / strong tags
-                    skip_words_all = [
-                        "facebook", "log in", "sign up", "error", "login",
-                        "خطأ", "تسجيل", "غير متوفر", "هذا المتصفح",
-                        "not available", "not supported", "page not found",
-                        "فيسبوك", "متصفح", "checkpoint", "security",
-                    ]
-                    for pat in [
-                        r'<h1[^>]*>([^<]{2,60})</h1>',
-                        r'<strong[^>]*>([^<]{2,60})</strong>',
-                        r'id="[^"]*name[^"]*"[^>]*>([^<]{2,60})<',
-                        r'"name":"([^"]{2,60})"',
-                    ]:
-                        m2 = re.search(pat, body)
-                        if m2:
-                            name = _clean_name(m2.group(1))
-                            nl = name.lower() if name else ""
-                            if name and len(name) > 1 and not any(w in nl for w in skip_words_all):
-                                return name
+                    # 2. og:title meta tag (often has clean name)
+                    m_og = re.search(
+                        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\'<]{2,80})["\']',
+                        body, re.IGNORECASE
+                    )
+                    if m_og:
+                        name = _strip_site_suffix(_clean_name(m_og.group(1)))
+                        if _valid_name(name):
+                            return name
+
+                    # 3. First <h1> on page — on profile pages this is the name
+                    m_h1 = re.search(r'<h1[^>]*>\s*([^<]{2,80})\s*</h1>', body)
+                    if m_h1:
+                        name = _clean_name(m_h1.group(1))
+                        if _valid_name(name):
+                            return name
+
+                    # 4. Profile-specific: name in first <strong> inside profile header
+                    # mbasic profile page puts name in first <strong> of the content area
+                    m_profile = re.search(
+                        r'<div\s+id=["\']root["\'][^>]*>.*?<strong[^>]*>([^<]{2,80})</strong>',
+                        body, re.DOTALL
+                    )
+                    if m_profile:
+                        name = _clean_name(m_profile.group(1))
+                        if _valid_name(name):
+                            return name
+
                 except Exception as e:
                     logger.debug(f"get_account_name url={url} error: {e}")
                     continue
@@ -241,42 +278,29 @@ def _add_group(groups, seen, gid, name, url=None):
 def _extract_groups_from_html(html: str, groups: list, seen: set):
     """Extract groups from mbasic HTML into the groups list."""
 
-    # Pattern 1: numeric group IDs in href
+    # Pattern 1: /groups/NUMERIC_ID — most reliable
     for m in re.finditer(
-        r'href="[^"]*?/groups/(\d{6,20})/?[^"]*"[^>]*>([^<]{2,80})</a>',
+        r'href="[^"]*?/groups/(\d{6,20})[^"]*"[^>]*>([^<]{2,100})</a>',
         html
     ):
         gid, name = m.group(1), _clean_name(m.group(2))
         _add_group(groups, seen, gid, name)
 
-    # Pattern 2: slug-based group IDs
+    # Pattern 2: /groups/SLUG — word-based group IDs
     for m2 in re.finditer(
-        r'href="[^"]*?/groups/([A-Za-z][A-Za-z0-9._]{3,80})/?"[^>]*>([^<]{2,80})</a>',
+        r'href="[^"]*?/groups/([A-Za-z][A-Za-z0-9._\-]{3,80})[/"?][^"]*"[^>]*>([^<]{2,100})</a>',
         html
     ):
-        slug, name = m2.group(1), _clean_name(m2.group(2))
-        if slug.lower() not in _SKIP_GROUP_SLUGS:
+        slug, name = m2.group(1).rstrip('/'), _clean_name(m2.group(2))
+        if slug.lower() not in _SKIP_GROUP_SLUGS and not slug.isdigit():
             _add_group(groups, seen, slug, name)
 
-    # Pattern 3: JSON "groupID"
-    for m3 in re.finditer(r'"groupID"\s*:\s*"?(\d{6,20})"?[^}]{0,200}"name"\s*:\s*"([^"]{2,80})"', html):
-        gid, name = m3.group(1), _clean_name(m3.group(2))
-        _add_group(groups, seen, gid, name)
-
-    # Pattern 4: broad – any link whose text follows href containing /groups/ID
-    for m4 in re.finditer(
-        r'<a\s[^>]*href="[^"]*?/groups/(\d{6,20})[^"]*"[^>]*>\s*([^<]{2,80}?)\s*</a>',
+    # Pattern 3: JSON — "id":"GROUPID","name":"GROUP NAME"
+    for m3 in re.finditer(
+        r'"id"\s*:\s*"(\d{6,20})"[^}]{1,300}"name"\s*:\s*"([^"\\]{2,80})"',
         html
     ):
-        gid, name = m4.group(1), _clean_name(m4.group(2))
-        _add_group(groups, seen, gid, name)
-
-    # Pattern 5: mbasic group listing — table/list rows with group links
-    for m5 in re.finditer(
-        r'<td[^>]*>.*?<a[^>]+href="[^"]*?/groups/(\d{6,20})[^"]*"[^>]*>([^<]{2,80})</a>',
-        html, re.DOTALL
-    ):
-        gid, name = m5.group(1), _clean_name(m5.group(2))
+        gid, name = m3.group(1), _clean_name(m3.group(2))
         _add_group(groups, seen, gid, name)
 
 

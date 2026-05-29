@@ -256,7 +256,9 @@ async def _send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _answer(update)
     context.user_data.clear()
-    return await cmd_start(update, context)
+    from telegram.ext import ConversationHandler
+    await _send_main_menu(update, context)
+    return S_MAIN
 
 
 # ── Nav text router ───────────────────────────────────────────────────────────
@@ -264,9 +266,11 @@ async def cb_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def nav_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip()
     key = MAIN_NAV.get(txt)
+    if key == "main":
+        context.user_data.clear()
 
     handlers_map = {
-        "main":          _send_main_menu,
+        "main":          cmd_start,
         "accounts":      _show_accounts,
         "groups":        _show_groups,
         "pages":         _show_pages,
